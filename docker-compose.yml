@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  # Redis服务
+  redis:
+    image: redis:7-alpine
+    container_name: news-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+
+  # PostgreSQL数据库
+  postgres:
+    image: postgres:15-alpine
+    container_name: news-postgres
+    environment:
+      POSTGRES_DB: news_aggregator
+      POSTGRES_USER: news_user
+      POSTGRES_PASSWORD: news_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  # Flask应用
+  web:
+    build: .
+    container_name: news-web
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=news_aggregator
+      - DB_USER=news_user
+      - DB_PASSWORD=news_password
+      - WECHAT_APPID=wxdd6ffcf441e469cd
+      - WECHAT_APPSECRET=9d91cf64a0446b113b80b9d96dd6300b
+      - WECHAT_OPENID=9d91cf64a0446b113b80b9d96dd6300b
+      - CRON_SCHEDULE=30 8 * * *
+    depends_on:
+      - redis
+      - postgres
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+  # Celery Worker
+  celery-worker:
+    build: .
+    container_name: news-celery-worker
+    command: celery -A tasks worker --loglevel=info --concurrency=4
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=news_aggregator
+      - DB_USER=news_user
+      - DB_PASSWORD=news_password
+      - WECHAT_APPID=wxdd6ffcf441e469cd
+      - WECHAT_APPSECRET=9d91cf64a0446b113b80b9d96dd6300b
+      - WECHAT_OPENID=9d91cf64a0446b113b80b9d96dd6300b
+    depends_on:
+      - redis
+      - postgres
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+  # Celery Beat (定时任务)
+  celery-beat:
+    build: .
+    container_name: news-celery-beat
+    command: celery -A tasks beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=news_aggregator
+      - DB_USER=news_user
+      - DB_PASSWORD=news_password
+    depends_on:
+      - redis
+      - postgres
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  postgres-data:
